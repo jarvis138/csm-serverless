@@ -1,19 +1,20 @@
-FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel
+FROM runpod/pytorch:2.4.0-py3.10-cuda12.1-devel
 
 WORKDIR /workspace
 
-# Install system dependencies
+# Install system dependencies exactly as per official repo
 RUN apt-get update && apt-get install -y git ffmpeg && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip install --no-cache-dir runpod torchaudio transformers>=4.52.1 huggingface_hub accelerate
+# Copy requirements and install Python dependencies exactly as per official repo
+COPY requirements.txt /workspace/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set environment variables
+# Set environment variables exactly as per official repo
 ENV NO_TORCH_COMPILE=1
 ENV HF_HOME=/workspace/.cache/huggingface
 
-# Copy handler
-COPY handler.py /workspace/handler.py
+# Copy CSM files
+COPY . /workspace/
 
 # Start the serverless handler
 CMD ["python", "-u", "/workspace/handler.py"]
