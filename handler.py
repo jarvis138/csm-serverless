@@ -5,23 +5,27 @@ import base64
 import io
 import os
 
-# Set environment variables exactly as per official repo
+# Set environment variables
 os.environ["NO_TORCH_COMPILE"] = "1"
 
 # Global CSM generator
 csm_generator = None
 
 def load_csm_model():
-    """Load CSM model exactly as per official documentation"""
+    """Load CSM model with error handling"""
     global csm_generator
     
     try:
         print("Loading CSM-1B model...")
         
-        # Import exactly as shown in official repo
-        from generator import load_csm_1b
+        # Try to import CSM components
+        try:
+            from generator import load_csm_1b
+        except ImportError as e:
+            print(f"Failed to import generator: {e}")
+            return False
         
-        # Device selection exactly as per official repo
+        # Device selection
         if torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
@@ -31,12 +35,15 @@ def load_csm_model():
         
         print(f"Using device: {device}")
         
-        # Load model exactly as per official repo
-        csm_generator = load_csm_1b(device=device)
-        print(f"CSM model loaded successfully!")
-        print(f"Sample rate: {csm_generator.sample_rate}")
-        
-        return True
+        # Load model with error handling
+        try:
+            csm_generator = load_csm_1b(device=device)
+            print(f"CSM model loaded successfully!")
+            print(f"Sample rate: {csm_generator.sample_rate}")
+            return True
+        except Exception as e:
+            print(f"Failed to load CSM model: {e}")
+            return False
         
     except Exception as e:
         print(f"Error loading CSM model: {e}")
@@ -45,46 +52,63 @@ def load_csm_model():
         return False
 
 def handler(event):
-    """RunPod serverless handler using exact official CSM implementation"""
+    """RunPod serverless handler with robust error handling"""
     try:
         print(f"Processing request: {event}")
         
-        # Extract input
+        # Extract input - handle both "prompt" and "text" for compatibility
         input_data = event.get("input", {})
-        text = input_data.get("text", "Hello from Oviya.")
+        text = input_data.get("prompt") or input_data.get("text", "Hello from Sesame.")
+        emotion = input_data.get("emotion", "empathetic")
+        
+        print(f"Input received - Text: '{text}', Emotion: '{emotion}'")
         
         # Load model if not loaded
         if csm_generator is None:
             if not load_csm_model():
                 return {
-                    "error": "Failed to load CSM model",
-                    "status": "error"
+                    "error": "Failed to load CSM model - check dependencies",
+                    "status": "error",
+                    "debug_info": "Model loading failed"
                 }
         
-        # Generate audio exactly as per official documentation
+        # Generate audio
         print(f"Generating audio for: '{text}'")
         
-        audio = csm_generator.generate(
-            text=text,
-            speaker=0,
-            context=[],
-            max_audio_length_ms=10_000,
-        )
+        try:
+            audio = csm_generator.generate(
+                text=text,
+                speaker=0,
+                context=[],
+                max_audio_length_ms=10_000,
+            )
+        except Exception as e:
+            print(f"Audio generation failed: {e}")
+            return {
+                "error": f"Audio generation failed: {e}",
+                "status": "error"
+            }
         
-        # Save audio exactly as per official documentation
-        buffer = io.BytesIO()
-        torchaudio.save(buffer, audio.unsqueeze(0).cpu(), csm_generator.sample_rate, format="wav")
-        buffer.seek(0)
-        
-        # Encode to base64 for API response
-        audio_bytes = buffer.read()
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+        # Save audio
+        try:
+            buffer = io.BytesIO()
+            torchaudio.save(buffer, audio.unsqueeze(0).cpu(), csm_generator.sample_rate, format="wav")
+            buffer.seek(0)
+            audio_bytes = buffer.read()
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+        except Exception as e:
+            print(f"Audio saving failed: {e}")
+            return {
+                "error": f"Audio saving failed: {e}",
+                "status": "error"
+            }
         
         print(f"Generated audio: {len(audio_bytes)} bytes")
         
         return {
             "audio_base64": audio_base64,
             "text": text,
+            "emotion": emotion,
             "sample_rate": csm_generator.sample_rate,
             "duration": audio.shape[-1] / csm_generator.sample_rate,
             "status": "success",
